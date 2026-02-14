@@ -2,6 +2,8 @@
 
 > **Advanced machine learning system for detecting and analyzing market regimes in the Indian stock market (NSE/BSE) using Hidden Markov Models (HMM) and Gaussian Mixture Models (GMM).**
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://shamiquekhan-market-regime-detection-system.streamlit.app)
+
 ![Python](https://img.shields.io/badge/python-3.9--3.11-blue.svg)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.28.0+-red.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -41,6 +43,21 @@ The **Market Regime Detection System** is a **research-grade quantitative financ
 ✅ **Rigorous Evaluation** - Sharpe ratio, Calmar, transition matrix stability, AIC/BIC *(OOS validation UI planned)*  
 ✅ **Backtesting Engine** - Strategy simulation with Buy & Hold comparison *(Transaction costs planned)*  
 ✅ **Export Ready** - CSV downloads with regime labels for trading system integration
+
+---
+
+## 🌐 Try It Live
+
+**🚀 Live App:** [shamiquekhan-market-regime-detection-system.streamlit.app](https://shamiquekhan-market-regime-detection-system.streamlit.app)
+
+**Quick Test:**
+1. Select **NIFTY50** index
+2. Choose date range: **2020-2024** (4 years)
+3. Click **"LOAD & ANALYZE"** → **"RUN DETECTION"**
+4. Review evaluation metrics (Sharpe, Calmar, regime stability)
+5. Export CSV with regime labels
+
+**Deployment Guide:** See [DEPLOYMENT.md](DEPLOYMENT.md) for deploying your own instance
 
 ---
 
