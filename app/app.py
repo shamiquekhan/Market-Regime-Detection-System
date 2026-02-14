@@ -429,30 +429,53 @@ with st.sidebar:
 # Main content area
 if st.session_state.data_loaded:
     
+    # Verify data is valid before proceeding
+    if (st.session_state.raw_data is None or st.session_state.raw_data.empty or
+        st.session_state.featured_data is None or st.session_state.featured_data.empty):
+        st.error("⚠️ Data is empty. Please try loading data again.")
+        st.session_state.data_loaded = False
+        st.stop()
+    
     # Quick stats
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        current_price = st.session_state.raw_data['Close'].iloc[-1]
-        st.metric(
-            label="Current Price",
-            value=f"₹{current_price:,.2f}",
-            delta=f"{st.session_state.raw_data['Close'].pct_change().iloc[-1]*100:.2f}%"
-        )
+        try:
+            current_price = st.session_state.raw_data['Close'].iloc[-1]
+            price_change = st.session_state.raw_data['Close'].pct_change().iloc[-1] * 100
+            st.metric(
+                label="Current Price",
+                value=f"₹{current_price:,.2f}",
+                delta=f"{price_change:.2f}%"
+            )
+        except (IndexError, KeyError) as e:
+            st.metric(label="Current Price", value="N/A")
     
     with col2:
-        volatility = st.session_state.featured_data['Volatility_21d'].iloc[-1]
-        st.metric(
-            label="21-Day Volatility",
-            value=f"{volatility:.2%}"
-        )
+        try:
+            if 'Volatility_21d' in st.session_state.featured_data.columns:
+                volatility = st.session_state.featured_data['Volatility_21d'].iloc[-1]
+                st.metric(
+                    label="21-Day Volatility",
+                    value=f"{volatility:.2%}"
+                )
+            else:
+                st.metric(label="21-Day Volatility", value="N/A")
+        except (IndexError, KeyError) as e:
+            st.metric(label="21-Day Volatility", value="N/A")
     
     with col3:
-        rsi = st.session_state.featured_data['RSI_14'].iloc[-1]
-        st.metric(
-            label="RSI (14)",
-            value=f"{rsi:.1f}"
-        )
+        try:
+            if 'RSI_14' in st.session_state.featured_data.columns:
+                rsi = st.session_state.featured_data['RSI_14'].iloc[-1]
+                st.metric(
+                    label="RSI (14)",
+                    value=f"{rsi:.1f}"
+                )
+            else:
+                st.metric(label="RSI (14)", value="N/A")
+        except (IndexError, KeyError) as e:
+            st.metric(label="RSI (14)", value="N/A")
     
     with col4:
         data_points = len(st.session_state.raw_data)
@@ -510,40 +533,46 @@ if st.session_state.data_loaded:
             # Time series plot with regimes
             fig = go.Figure()
             
-            # Add price line
-            fig.add_trace(go.Scatter(
-                x=st.session_state.featured_data.index,
-                y=st.session_state.featured_data['Close'],
-                mode='lines',
-                name='Close Price',
-                line=dict(color='blue', width=2)
-            ))
+            # Check if Close column exists in featured_data
+            close_col = 'Close' if 'Close' in st.session_state.featured_data.columns else 'close'
             
-            # Color background by regime
-            regime_colors = px.colors.qualitative.Set1[:n_regimes]
-            
-            for i in range(n_regimes):
-                mask = st.session_state.regimes == i
-                regime_dates = st.session_state.featured_data.index[mask]
+            if close_col in st.session_state.featured_data.columns:
+                # Add price line
+                fig.add_trace(go.Scatter(
+                    x=st.session_state.featured_data.index,
+                    y=st.session_state.featured_data[close_col],
+                    mode='lines',
+                    name='Close Price',
+                    line=dict(color='blue', width=2)
+                ))
                 
-                if len(regime_dates) > 0:
-                    fig.add_trace(go.Scatter(
-                        x=regime_dates,
-                        y=st.session_state.featured_data.loc[regime_dates, 'Close'],
-                        mode='markers',
-                        name=f'Regime {i}',
-                        marker=dict(color=regime_colors[i], size=3)
-                    ))
-            
-            fig.update_layout(
-                title=f"{st.session_state.index_choice} Price with Detected Regimes",
-                xaxis_title="Date",
-                yaxis_title="Price (₹)",
-                hovermode='x unified',
-                height=500
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+                # Color background by regime
+                regime_colors = px.colors.qualitative.Set1[:n_regimes]
+                
+                for i in range(n_regimes):
+                    mask = st.session_state.regimes == i
+                    regime_dates = st.session_state.featured_data.index[mask]
+                    
+                    if len(regime_dates) > 0:
+                        fig.add_trace(go.Scatter(
+                            x=regime_dates,
+                            y=st.session_state.featured_data.loc[regime_dates, close_col],
+                            mode='markers',
+                            name=f'Regime {i}',
+                            marker=dict(color=regime_colors[i], size=3)
+                        ))
+                
+                fig.update_layout(
+                    title=f"{st.session_state.index_choice} Price with Detected Regimes",
+                    xaxis_title="Date",
+                    yaxis_title="Price (₹)",
+                    hovermode='x unified',
+                    height=500
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("⚠️ Close price data not available for visualization.")
         
         with col2:
             # Regime count
@@ -566,68 +595,101 @@ if st.session_state.data_loaded:
         st.markdown("### Characteristics Matrix")
         
         # Calculate regime stats
-        regime_data = st.session_state.featured_data.copy()
-        regime_data['Regime'] = st.session_state.regimes
-        
-        regime_stats = regime_data.groupby('Regime').agg({
-            'Return_1d': ['mean', 'std'],
-            'Volatility_21d': 'mean',
-            'RSI_14': 'mean',
-            'Volume_Ratio': 'mean'
-        }).round(4)
-        
-        # Flatten column names
-        regime_stats.columns = ['_'.join(col).strip() for col in regime_stats.columns.values]
-        regime_stats = regime_stats.reset_index()
-        
-        st.dataframe(regime_stats, use_container_width=True)
+        try:
+            regime_data = st.session_state.featured_data.copy()
+            regime_data['Regime'] = st.session_state.regimes
+            
+            # Build aggregation dict based on available columns
+            agg_dict = {}
+            if 'Return_1d' in regime_data.columns:
+                agg_dict['Return_1d'] = ['mean', 'std']
+            if 'Volatility_21d' in regime_data.columns:
+                agg_dict['Volatility_21d'] = 'mean'
+            if 'RSI_14' in regime_data.columns:
+                agg_dict['RSI_14'] = 'mean'
+            if 'Volume_Ratio' in regime_data.columns:
+                agg_dict['Volume_Ratio'] = 'mean'
+            
+            if agg_dict:
+                regime_stats = regime_data.groupby('Regime').agg(agg_dict).round(4)
+                
+                # Flatten column names
+                regime_stats.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col 
+                                       for col in regime_stats.columns.values]
+                regime_stats = regime_stats.reset_index()
+                
+                st.dataframe(regime_stats, use_container_width=True)
+            else:
+                st.warning("⚠️ Insufficient feature data to display regime characteristics.")
+                
+        except Exception as e:
+            st.error(f"Error calculating regime characteristics: {str(e)}")
         
         # Current regime
-        current_regime = st.session_state.regimes[-1]
-        st.markdown(f"""
-        <div style='border: 1px solid #000000; background: #000000; color: #FFFFFF; padding: 1.5rem 2rem; margin: 2rem 0;'>
-            <div style='font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.15em; opacity: 0.7; margin-bottom: 0.5rem;'>CURRENT MARKET STATE</div>
-            <div style='font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em;'>REGIME {current_regime}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        try:
+            if len(st.session_state.regimes) > 0:
+                current_regime = st.session_state.regimes[-1]
+                st.markdown(f"""
+                <div style='border: 1px solid #000000; background: #000000; color: #FFFFFF; padding: 1.5rem 2rem; margin: 2rem 0;'>
+                    <div style='font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.15em; opacity: 0.7; margin-bottom: 0.5rem;'>CURRENT MARKET STATE</div>
+                    <div style='font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em;'>REGIME {current_regime}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        except (IndexError, AttributeError):
+            st.warning("⚠️ No regime data available.")
         
         # Regime interpretation
         st.markdown("### Interpretation")
         
-        # Simple heuristic interpretation based on returns and volatility
-        for regime_id in range(n_regimes):
-            regime_mask = st.session_state.regimes == regime_id
-            regime_returns = regime_data.loc[regime_mask, 'Return_1d'].mean()
-            regime_vol = regime_data.loc[regime_mask, 'Volatility_21d'].mean()
-            
-            if regime_returns > 0.001 and regime_vol < 0.15:
-                label = "HEALTHY & STEADY"
-                desc = "Positive returns — Low volatility"
-                color = "#000000"
-            elif regime_returns > 0 and regime_vol > 0.15:
-                label = "BULLISH BUT VOLATILE"
-                desc = "Positive returns — High volatility"
-                color = "#FF0000"
-            elif regime_returns < 0 and regime_vol > 0.20:
-                label = "CRISIS MODE"
-                desc = "Negative returns — High volatility"
-                color = "#FF0000"
-            elif abs(regime_returns) < 0.001:
-                label = "RANGE-BOUND"
-                desc = "Neutral returns — Consolidation"
-                color = "#666666"
-            else:
-                label = "PULLBACK"
-                desc = "Moderately negative returns"
-                color = "#666666"
-            
-            st.markdown(f"""
-            <div style='border-left: 4px solid {color}; padding: 1rem 1.5rem; margin: 1rem 0; background: #FAFAFA;'>
-                <div style='font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #666; margin-bottom: 0.25rem;'>REGIME {regime_id}</div>
-                <div style='font-size: 1.25rem; font-weight: 700; margin-bottom: 0.25rem;'>{label}</div>
-                <div style='font-size: 0.875rem; color: #666;'>{desc}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        try:
+            # Simple heuristic interpretation based on returns and volatility
+            for regime_id in range(n_regimes):
+                regime_mask = st.session_state.regimes == regime_id
+                
+                # Check if columns exist before accessing
+                if 'Return_1d' in regime_data.columns and 'Volatility_21d' in regime_data.columns:
+                    regime_returns = regime_data.loc[regime_mask, 'Return_1d'].mean()
+                    regime_vol = regime_data.loc[regime_mask, 'Volatility_21d'].mean()
+                    
+                    if regime_returns > 0.001 and regime_vol < 0.15:
+                        label = "HEALTHY & STEADY"
+                        desc = "Positive returns — Low volatility"
+                        color = "#000000"
+                    elif regime_returns > 0 and regime_vol > 0.15:
+                        label = "BULLISH BUT VOLATILE"
+                        desc = "Positive returns — High volatility"
+                        color = "#FF0000"
+                    elif regime_returns < 0 and regime_vol > 0.20:
+                        label = "CRISIS MODE"
+                        desc = "Negative returns — High volatility"
+                        color = "#FF0000"
+                    elif abs(regime_returns) < 0.001:
+                        label = "RANGE-BOUND"
+                        desc = "Neutral returns — Consolidation"
+                        color = "#666666"
+                    else:
+                        label = "PULLBACK"
+                        desc = "Moderately negative returns"
+                        color = "#666666"
+                    
+                    st.markdown(f"""
+                    <div style='border-left: 4px solid {color}; padding: 1rem 1.5rem; margin: 1rem 0; background: #FAFAFA;'>
+                        <div style='font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #666; margin-bottom: 0.25rem;'>REGIME {regime_id}</div>
+                        <div style='font-size: 1.25rem; font-weight: 700; margin-bottom: 0.25rem;'>{label}</div>
+                        <div style='font-size: 0.875rem; color: #666;'>{desc}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    # Fallback when columns don't exist
+                    st.markdown(f"""
+                    <div style='border-left: 4px solid #666666; padding: 1rem 1.5rem; margin: 1rem 0; background: #FAFAFA;'>
+                        <div style='font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #666; margin-bottom: 0.25rem;'>REGIME {regime_id}</div>
+                        <div style='font-size: 1.25rem; font-weight: 700; margin-bottom: 0.25rem;'>REGIME {regime_id}</div>
+                        <div style='font-size: 0.875rem; color: #666;'>Insufficient data for interpretation</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        except Exception as e:
+            st.warning(f"⚠️ Could not generate regime interpretations: {str(e)}")
         
         # Model Evaluation Section
         st.markdown("---")
@@ -635,17 +697,22 @@ if st.session_state.data_loaded:
         st.markdown("Regime persistence, transition realism, and trading value metrics")
         
         try:
-            # Create evaluator
-            eval_data = st.session_state.featured_data[['Close']].copy()
-            eval_data['returns'] = st.session_state.featured_data['Return_1d']
-            evaluator = RegimeEvaluator(
-                model=st.session_state.model,
-                data=eval_data,
-                regimes=st.session_state.regimes
-            )
-            
-            # Generate evaluation report
-            eval_report = evaluator.generate_evaluation_report()
+            # Create evaluator - ensure required columns exist
+            if 'Close' not in st.session_state.featured_data.columns:
+                st.error("⚠️ Close price data missing. Cannot perform evaluation.")
+            elif 'Return_1d' not in st.session_state.featured_data.columns:
+                st.error("⚠️ Return data missing. Cannot perform evaluation.")
+            else:
+                eval_data = st.session_state.featured_data[['Close']].copy()
+                eval_data['returns'] = st.session_state.featured_data['Return_1d']
+                evaluator = RegimeEvaluator(
+                    model=st.session_state.model,
+                    data=eval_data,
+                    regimes=st.session_state.regimes
+                )
+                
+                # Generate evaluation report
+                eval_report = evaluator.generate_evaluation_report()
             
             # Display key metrics
             col1, col2, col3, col4 = st.columns(4)
