@@ -1,5 +1,6 @@
 """
 Market Regime Detection System - Main Streamlit App
+Version: 2.1.0 - Flexible regime strategy configuration
 """
 
 import streamlit as st
@@ -10,6 +11,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import sys
 from pathlib import Path
+import importlib
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -19,6 +21,10 @@ from src.data_collection.nse_data import IndianMarketData
 from src.features.technical import TechnicalFeatures
 from src.models.hmm_model import HMMRegimeDetector
 from src.models.gmm_model import GMMRegimeDetector
+
+# Import and reload regime evaluation to clear cache
+from src.evaluation import regime_evaluation
+importlib.reload(regime_evaluation)
 from src.evaluation.regime_evaluation import RegimeEvaluator
 
 # Page configuration

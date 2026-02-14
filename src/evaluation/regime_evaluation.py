@@ -1,6 +1,8 @@
 """
 Regime Detection Model Evaluation
 Evaluates HMM/GMM performance using regime persistence, transition realism, and trading value
+
+Version: 2.1.0 - Added flexible strategy configuration support
 """
 
 import numpy as np
