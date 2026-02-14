@@ -397,6 +397,41 @@ with st.sidebar:
         help="Typically 3-5 regimes work well"
     )
     
+    # Strategy Configuration
+    st.markdown("### 03 — Strategy Settings")
+    
+    strategy_preset = st.selectbox(
+        "Strategy Preset",
+        options=['Conservative (Long in 2 regimes)', 
+                 'Balanced (Long in 3 regimes)', 
+                 'Aggressive (Long in all but crisis)'],
+        index=0,
+        help="Choose trading aggressiveness"
+    )
+    
+    risk_free_rate = st.slider(
+        "Risk-Free Rate (%)",
+        min_value=0.0,
+        max_value=10.0,
+        value=6.5,
+        step=0.5,
+        help="Annual risk-free rate for Sharpe calculation (India T-bills ~6.5%)"
+    ) / 100
+    
+    # Advanced: Custom regime assignment (expander)
+    with st.expander("⚙️ Advanced: Custom Regime Assignment"):
+        st.markdown("**Choose which regimes to go LONG vs CASH**")
+        st.markdown("_Tip: Check regime characteristics after detection to optimize_")
+        
+        custom_assignment = st.checkbox("Use Custom Assignment", value=False)
+        
+        if custom_assignment:
+            long_regime_input = st.text_input(
+                "Long Regimes (comma-separated)",
+                value="0,1",
+                help="E.g., '0,1,2' for regimes 0, 1, and 2"
+            )
+    
     # Load data button
     st.markdown("---")
     if st.button("LOAD & ANALYZE", type="primary"):
@@ -510,13 +545,41 @@ if st.session_state.data_loaded:
                 model.fit(X)
                 regimes = model.predict(X)
                 
+                # Determine regime assignment based on preset
+                if custom_assignment:
+                    try:
+                        long_regimes = [int(x.strip()) for x in long_regime_input.split(',')]
+                        hedge_regimes = [i for i in range(n_regimes) if i not in long_regimes]
+                    except:
+                        st.warning("Invalid custom assignment, using preset")
+                        custom_assignment = False
+                
+                if not custom_assignment:
+                    if 'Conservative' in strategy_preset:
+                        # Original: Long in 2 regimes
+                        long_regimes = [0, 1]
+                        hedge_regimes = list(range(2, n_regimes))
+                    elif 'Balanced' in strategy_preset:
+                        # Long in 3 regimes
+                        long_regimes = list(range(n_regimes - 1))  # All except last
+                        hedge_regimes = [n_regimes - 1]
+                    else:  # Aggressive
+                        # Long in all but one (presumed crisis regime)
+                        long_regimes = list(range(n_regimes - 1))
+                        hedge_regimes = [n_regimes - 1]
+                
                 # Store results
                 st.session_state.model = model
                 st.session_state.regimes = regimes
                 st.session_state.regime_model_fitted = True
                 st.session_state.feature_cols = feature_cols
+                st.session_state.long_regimes = long_regimes
+                st.session_state.hedge_regimes = hedge_regimes
+                st.session_state.risk_free_rate = risk_free_rate
+                st.session_state.n_regimes = n_regimes
                 
                 st.success(f"✅ Regime detection complete! Detected {n_regimes} regimes.")
+                st.info(f"📊 Strategy: Long in regimes {long_regimes}, Cash in regimes {hedge_regimes}")
                 
             except Exception as e:
                 st.error(f"Error in regime detection: {str(e)}")
@@ -619,6 +682,42 @@ if st.session_state.data_loaded:
                 regime_stats = regime_stats.reset_index()
                 
                 st.dataframe(regime_stats, use_container_width=True)
+                
+                # Optimization guidance
+                st.markdown("#### 💡 Strategy Optimization Guide")
+                
+                if 'Return_1d_mean' in regime_stats.columns:
+                    # Calculate which regimes have positive expected returns
+                    positive_regimes = regime_stats[regime_stats['Return_1d_mean'] > 0]['Regime'].tolist()
+                    high_return_regimes = regime_stats[regime_stats['Return_1d_mean'] > 0.001]['Regime'].tolist()
+                    
+                    current_long = st.session_state.get('long_regimes', [0, 1])
+                    current_hedge = st.session_state.get('hedge_regimes', [2, 3] if n_regimes == 4 else [])
+                    
+                    st.markdown(f"""
+                    <div style='background: #E3F2FD; padding: 1rem; border-left: 4px solid #1976D2; margin: 1rem 0;'>
+                        <div style='font-size: 0.875rem; font-weight: 600; color: #1976D2; margin-bottom: 0.5rem;'>Current Strategy Analysis</div>
+                        <div style='font-size: 0.875rem; color: #333;'>
+                            • <strong>Long positions:</strong> Regimes {', '.join(map(str, current_long))}<br>
+                            • <strong>Positive return regimes:</strong> {', '.join(map(str, positive_regimes)) if positive_regimes else 'None'}<br>
+                            • <strong>High return regimes (>0.1% daily):</strong> {', '.join(map(str, high_return_regimes)) if high_return_regimes else 'None'}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Check if current strategy is suboptimal
+                    missing_good_regimes = [r for r in high_return_regimes if r not in current_long]
+                    bad_long_regimes = [r for r in current_long if r not in positive_regimes]
+                    
+                    if missing_good_regimes or bad_long_regimes:
+                        suggestions = []
+                        if missing_good_regimes:
+                            suggestions.append(f"Consider adding regimes **{', '.join(map(str, missing_good_regimes))}** to long positions (high expected returns)")
+                        if bad_long_regimes:
+                            suggestions.append(f"Consider removing regimes **{', '.join(map(str, bad_long_regimes))}** from long positions (negative expected returns)")
+                        
+                        st.warning("⚠️ **Potential Strategy Improvements:**\n\n" + "\n\n".join([f"• {s}" for s in suggestions]))
+                        st.info("💡 **Tip:** Use the sidebar's '03 — Strategy Settings' to adjust regime assignment and re-run detection")
             else:
                 st.warning("⚠️ Insufficient feature data to display regime characteristics.")
                 
@@ -711,8 +810,47 @@ if st.session_state.data_loaded:
                     regimes=st.session_state.regimes
                 )
                 
-                # Generate evaluation report
-                eval_report = evaluator.generate_evaluation_report()
+                # Get strategy parameters from session state (with fallbacks)
+                long_regimes = st.session_state.get('long_regimes', [0, 1])
+                hedge_regimes = st.session_state.get('hedge_regimes', [2, 3])
+                risk_free_rate = st.session_state.get('risk_free_rate', 0.065)
+                
+                # Generate evaluation report with configured parameters
+                eval_report = evaluator.generate_evaluation_report(
+                    long_regimes=long_regimes,
+                    hedge_regimes=hedge_regimes,
+                    risk_free_rate=risk_free_rate
+                )
+            
+            # Display strategy configuration
+            st.markdown("### Strategy Configuration")
+            config_col1, config_col2, config_col3 = st.columns(3)
+            
+            with config_col1:
+                st.markdown(f"""
+                <div style='background: #E8F5E9; padding: 1rem; border-radius: 4px;'>
+                    <div style='font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.1em;'>Long Positions</div>
+                    <div style='font-size: 1.5rem; font-weight: 700; color: #2E7D32;'>Regimes {', '.join(map(str, long_regimes))}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with config_col2:
+                st.markdown(f"""
+                <div style='background: #FFF3E0; padding: 1rem; border-radius: 4px;'>
+                    <div style='font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.1em;'>Cash/Hedge</div>
+                    <div style='font-size: 1.5rem; font-weight: 700; color: #E65100;'>Regimes {', '.join(map(str, hedge_regimes))}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with config_col3:
+                st.markdown(f"""
+                <div style='background: #F5F5F5; padding: 1rem; border-radius: 4px;'>
+                    <div style='font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.1em;'>Risk-Free Rate</div>
+                    <div style='font-size: 1.5rem; font-weight: 700; color: #333;'>{risk_free_rate*100:.1f}%</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("---")
             
             # Display key metrics
             col1, col2, col3, col4 = st.columns(4)

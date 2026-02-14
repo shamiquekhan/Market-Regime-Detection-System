@@ -380,17 +380,32 @@ class RegimeEvaluator:
             'quality_net': self._get_strategy_quality(sharpe_net, calmar_net, max_drawdown_net)
         }
     
-    def generate_evaluation_report(self) -> Dict:
+    def generate_evaluation_report(self, 
+                                   long_regimes: list = None,
+                                   hedge_regimes: list = None,
+                                   risk_free_rate: float = 0.065) -> Dict:
         """
         Generate comprehensive evaluation report including all metrics
+        
+        Args:
+            long_regimes: Regime IDs for long positions (default: [0, 1])
+            hedge_regimes: Regime IDs for cash/hedge (default: [2, 3])
+            risk_free_rate: Annual risk-free rate (default: 0.065 for India)
         """
+        # Set defaults if not provided
+        if long_regimes is None:
+            long_regimes = [0, 1]
+        if hedge_regimes is None:
+            n_regimes = len(np.unique(self.regimes))
+            hedge_regimes = [i for i in range(n_regimes) if i not in long_regimes]
+        
         report = {
             'transition_analysis': self.evaluate_transition_stability(),
             'information_criteria': self.compute_information_criteria(),
-            'backtest_results': self.backtest_strategy(),
+            'backtest_results': self.backtest_strategy(long_regimes, hedge_regimes, risk_free_rate),
             'regime_quality': self.regime_characteristics_quality(),
             'regime_duration': self.compute_regime_duration_distribution(),
-            'turnover_and_costs': self.compute_turnover_metrics()
+            'turnover_and_costs': self.compute_turnover_metrics(long_regimes, hedge_regimes, risk_free_rate)
         }
         
         return report
